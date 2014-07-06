@@ -1,0 +1,56 @@
+#!/usr/bin/python
+# -*- Mode: python; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details:
+#
+# Copyright (C) 2008 Novell, Inc.
+# Copyright (C) 2009 - 2010 Red Hat, Inc.
+#
+
+import sys, dbus
+
+DBUS_INTERFACE_PROPERTIES='org.freedesktop.DBus.Properties'
+MM_DBUS_SERVICE='org.freedesktop.ModemManager'
+MM_DBUS_PATH='/org/freedesktop/ModemManager'
+MM_DBUS_INTERFACE='org.freedesktop.ModemManager'
+MM_DBUS_INTERFACE_MODEM='org.freedesktop.ModemManager.Modem'
+
+bus = dbus.SystemBus()
+
+# Get available modems:
+manager_proxy = bus.get_object(MM_DBUS_SERVICE, MM_DBUS_PATH)
+manager_iface = dbus.Interface(manager_proxy, dbus_interface=MM_DBUS_INTERFACE)
+modems = manager_iface.EnumerateDevices()
+
+if not modems:
+    sys.exit(1)
+
+for m in modems:
+    proxy = bus.get_object(MM_DBUS_SERVICE, m)
+
+    # Properties
+    props_iface = dbus.Interface(proxy, dbus_interface=DBUS_INTERFACE_PROPERTIES)
+    info = dbus.Interface(proxy, dbus_interface=MM_DBUS_INTERFACE_MODEM).GetInfo(MM_DBUS_INTERFACE_MODEM)
+    try:
+		if sys.argv[1] == "--kde" or sys.argv[1] == "-k":
+    		sys.stdout.write("{0}^{1} - {2}^".format(str(m).replace("'", r"\'"), str(info[0]).replace("'", r"\'"), str(info[1]).replace("'", r"\'")))
+		else:
+			sys.stdout.write("'{0}' '{1}' '{2}' ".format(str(m).replace("'", r"\'"), str(info[0]).replace("'", r"\'"), str(info[1]).replace("'", r"\'")))
+	except IndexError:
+		sys.stdout.write("'{0}' '{1}' '{2}' ".format(str(m).replace("'", r"\'"), str(info[0]).replace("'", r"\'"), str(info[1]).replace("'", r"\'")))
+	finally:
+    	sys.stdout.flush()
+try:
+    if sys.argv[1] != "--kde" and sys.argv[1] != "-k":
+        print
+except IndexError:
+    pass
+sys.exit(0)

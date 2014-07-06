@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=KGSM
+GenericName=Gestore di modem e telefoni
+Comment=Interfaccia per ModemManager per fare operazioni elementari con telefoni e chiavette. Si basa su ZenGSM.
+Exec=/usr/local/bin/kgsm
+Icon=phone
+Terminal=false
+Type=Application
+Categories=System;Settings;Network;Utility;
+OnlyShowIn=KDE;

@@ -1,0 +1,12 @@
+Questo programma permette di effettuare semplici operazioni
+utilizzando ModemManager.
+
+= Installazione e rimozione =
+È sufficiente eseguire gli appositi script come root
+    sudo ./install.sh
+    sudo ./remove.sh
+
+
+= Changelog =
+    v 1.0 (02/04/2013)
+        Rilascio iniziale

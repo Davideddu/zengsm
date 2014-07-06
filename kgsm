@@ -1,0 +1,277 @@
+#!/bin/bash
+which kdialog > /dev/null || (echo "This program requires KDialog to be run. Please install it and try again."; exit 0)
+which qdbus > /dev/null || (echo "This program requires QDBus to be run. Please install it and try again."; exit 0)
+
+# Trucchetti per l'interfaccia...
+kdialog="kdialog --title KGSM --name KGSM --caption KGSM --icon phone"
+function animwait {
+    if [ "${1}" == "" ]; then
+        echo "The function \"animwait\" requires the QDBus progress dialog reference as the first argument"\!
+        break
+    fi
+    while true; do
+        for i in {1..99..2}; do
+            qdbus ${1} "value" "$i" > /dev/null || return
+            sleep 0.001
+        done
+        for i in {99..1..2}; do
+            qdbus ${1} value $i > /dev/null || return
+            sleep 0.001
+        done
+    done
+}
+
+while true; do
+    ref=$($kdialog --progressbar "Ricerca dispositivi in corso...")
+    animwait "$ref" &
+    modems="$(/usr/local/share/zengsm/list_modems --kde)"
+    qdbus ${ref} close
+    if [ "${modems}" == "" ]; then
+        $kdialog --warningcontinuecancel "Non è stato trovato alcun dispositivo." --continue-label "Ricontrolla" --cancel-label "Esci"
+        if [ $? == 1 ]; then
+            exit 0
+        fi
+        continue
+    else
+        modems="${modems}ricontrolla^Ripeti la ricerca dei dispositivi..."
+        #modems="/org/freedesktop/ModemManager/Modems/0^Nokia - Nokia 2700 classic"
+        modem=$(echo -n "${modems}" | xargs -d "^" $kdialog --menu "Scegli la chiavetta/telefono")
+        if [ "${modem}" == "" ]; then
+            exit 0
+        elif [ "${modem}" != "ricontrolla" ]; then
+            break
+        fi
+    fi
+done
+
+
+ref=$($kdialog --progressbar "Attivazione della rete cellulare...")
+animwait "$ref" &
+/usr/local/share/zengsm/enable "${modem}"
+qdbus ${ref} close
+
+while true; do
+
+    ref=$($kdialog --progressbar "Lettura informazioni in corso...")
+    animwait "$ref" &
+    info=$(/usr/local/share/zengsm/get_info "${modem}" --kde)
+    qdbus ${ref} close
+    action=$($kdialog --menu "Cosa vuoi fare?" "stato" "${info}" "separator" "" "credito" "Controlla il credito residuo" "ricarica" "Effettua una ricarica" "sms" "Invia un SMS" "ussd" "Invia un codice di servizio" "disconnect" "Disconnetti da Internet" "scan" "Ricerca reti disponibili" "separator" "" "about" "Informazioni" "disable-exit" "Disattiva modem ed esci" "esci" "Esci")
+    case $action in
+        "credito")
+            ref=$($kdialog --progressbar "Richiesta in corso...")
+            animwait "$ref" &
+            credito=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+            exitcode="$?"
+            qdbus ${ref} close
+            if [ $exitcode == 1 ]; then
+                $kdialog --error "Non è stato possibile richiedere il credito.
+Se sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                continue
+            fi
+            $kdialog --msgbox "${credito}"
+        ;;
+        "stato")
+            tmp=$(mktemp)
+            /usr/local/share/zengsm/detailed_info ${modem} > ${tmp}
+            $kdialog --textbox "${tmp}" 600 600
+            rm "${tmp}"
+        ;;
+        "ricarica")
+            op=$(/usr/local/share/zengsm/get_operator "${modem}")
+            operator=()
+            while read -r line; do
+                operator+=("$line")
+            done <<< "${op}"
+            to_use_op="${operator[1]}"
+            status=$(/usr/local/share/zengsm/get_reg_status "${modem}")
+            echo "$status"
+            if [ "${status}" != "own_network" ]; then
+                to_use_op=""
+            fi
+            while true; do
+                case "${to_use_op}" in
+                    "Wind")
+                        taglio1=$($kdialog --combobox "Operatore rilevato: ${operator[1]}, ${operator[0]}
+Seleziona il taglio della ricarica WIND
+" "5€" "10€" "15€" "25€" "50€")
+                        taglio=$(python -c "print \"\"\"${taglio1}\"\"\".replace(\"€\", \"\")")
+                        if [ "${taglio}" != "" ]; then
+                        codice=$($kdialog --inputbox "Operatore rilevato: ${operator[1]}, ${operator[0]}
+Inserisci il codice della ricarica WIND senza spazi" "")
+                        if [ "${codice}" != "" ]; then
+                        ref=$($kdialog --progressbar "Richiesta in corso...")
+                        animwait "$ref" &
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "4155" --modem "${modem}" "RICARICA ${taglio} ${codice}"
+                        exitcode="$?"
+                        qdbus ${ref} close
+                        if [ $exitcode == 2 ]; then
+                            $kdialog --error "Non è stato possibile effettuare la ricarica.
+Se sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        ref=$($kdialog --progressbar "Richiesta credito in corso...")
+                        animwait "$ref" &
+                        credito=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        qdbus ${ref} close
+                        if [ $exitcode == 1 ]; then
+                            $kdialog --error "Non è stato possibile richiedere il credito.
+Se sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        $kdialog --msgbox "${credito}"
+                        fi
+                        fi
+                        break
+                    ;;
+                    "TIM")
+                        codice=$($kdialog --inputbox "Operatore rilevato: ${operator[1]}, ${operator[0]}
+Inserisci il codice della RICARICard TIM senza spazi" "")
+                        if [ "${codice}" != "" ]; then
+                        ref=$($kdialog --progressbar "Richiesta in corso...")
+                        animwait "$ref" &
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "40916" --modem "${modem}" "RIC ${codice}"
+                        exitcode="$?"
+                        qdbus ${ref} close
+                        if [ $exitcode == 2 ]; then
+                            $kdialog --error "Non è stato possibile effettuare la ricarica.
+Se sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        ref=$($kdialog --progressbar "Richiesta credito in corso...")
+                        animwait "$ref" &
+                        credito=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        qdbus ${ref} close
+                        if [ $exitcode == 1 ]; then
+                            $kdialog --error "Non è stato possibile richiedere il credito.
+Se sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        $kdialog --msgbox "${credito}"
+                        fi
+                        break
+                    ;;
+                    "Vodafone")
+                        codice=$($kdialog --inputbox "Operatore rilevato: ${operator[1]}, ${operator[0]}
+Inserisci il codice della ricarica Vodafone senza spazi" "")
+                        if [ "${codice}" != "" ]; then
+                        ref=$($kdialog --progressbar "Richiesta in corso...")
+                        animwait "$ref" &
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "42010" --modem "${modem}" "${codice}"
+                        exitcode="$?"
+                        qdbus ${ref} close
+                        if [ $exitcode == 2 ]; then
+                            $kdialog --error "Non è stato possibile effettuare la ricarica.
+Se sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        ref=$($kdialog --progressbar "Richiesta credito in corso...")
+                        animwait "$ref" &
+                        credito=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        qdbus ${ref} close
+                        if [ $exitcode == 1 ]; then
+                            $kdialog --error "Non è stato possibile richiedere il credito.
+Se sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        $kdialog --msgbox "${credito}"
+                        fi
+                        break
+                    ;;
+                    *)
+                        to_use_op=$($kdialog --combobox "Non è stato possibile riconoscere il proprio operatore.
+Questo può essere dovuto al fatto che si è in roaming
+nella rete di un altro operatore.
+È possibile selezionare un operatore dalla lista in basso.
+Nota che l'operatore di roaming potrebbe addebitare il
+costo dell'SMS, che in Italia normalmente è gratuito.
+(Operatore rilevato: ${operator[1]}, ${operator[0]})
+" "Wind" "Vodafone" "TIM")
+                        if [ "${to_use_op}" == "" ]; then
+                            break
+                        fi
+                    ;;
+                esac
+            done
+        ;;
+        "sms")
+            numero=$($kdialog --inputbox "Inserisci il numero di telefono del destinatario" "")
+            if [ "${numero}" != "" ]; then
+            testo=$($kdialog --textinputbox "Inserisci il testo del messaggio")
+            if [ "${testo}" != "" ]; then
+            ref=$($kdialog --progressbar "Invio in corso...")
+            animwait "$ref" &
+            /usr/local/share/zengsm/sms_send --number "${numero}" --modem "${modem}" "${testo}"
+            qdbus ${ref} close
+            if [ "$?" == "0" ]; then
+                $kdialog --msgbox "Messaggio inviato"
+            else
+                $kdialog --error "Messaggio non inviato.
+Questo potrebbe essere dovuto al fatto che si è attualmente collegati a Internet con questo modem. Scollegati da Internet dal menu principale e riprova."
+            fi
+            fi
+            fi
+        ;;
+        "ussd")
+            text="Inserisci il codice di servizio"
+            while true
+            do
+                ussd=$($kdialog --inputbox "${text}" "*123#")
+                if [ "${ussd}" == "" ]; then
+                    break
+                fi
+                ref=$($kdialog --progressbar "Richiesta in corso...")
+                animwait "$ref" &
+                tmp="$(mktemp)"
+                /usr/local/share/zengsm/ussd "${modem}" "${ussd}" &> ${tmp}
+                exitcode="$?"
+                qdbus ${ref} close
+                if [ $exitcode == 1 ]; then
+                    $kdialog --error "Non è stato possibile effettuare l'operazione.
+Se sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                    break
+                fi
+                $kdialog --textbox "${tmp}"
+                rm "${tmp}"
+                $kdialog --yesno "Rispondere?"
+                if [ $? == 1 ]; then
+                    break
+                fi
+                text="Inserisci la risposta"
+            done
+        ;;
+        "disconnect")
+            ref=$($kdialog --progressbar "Ricerca dispositivi in corso...")
+            animwait "$ref" &
+            /usr/local/share/zengsm/disconnect "${modem}"
+            qdbus ${ref} close
+        ;;
+        "scan")
+            ref=$($kdialog --progressbar "Ricerca in corso...")
+            animwait "$ref" &
+            tmp="$(mktemp)"
+            /usr/local/share/zengsm/scan "${modem}" &> ${tmp}
+            qdbus ${ref} close
+            $kdialog --textbox "${tmp}" 400 450
+            rm ${tmp}
+        ;;
+        "about")
+            $kdialog --msgbox "<big><big><big>ZenGSM</big></big></big>   v1.3<br/><big><br/>Un piccolo programma per gestire i modem GSM</big><br/><br/>Scritto da Davide Depau <a href='mailto:david.dep.1996@gmail.com' title='Manda una email a Davide Depau'>&lt;david.dep.1996@gmail.com&gt;</a>"
+        ;;
+        "separator")
+        ;;
+        "disable-exit")
+            ref=$($kdialog --progressbar "Disattivazione della rete cellulare...")
+            animwait "$ref" &
+            /usr/local/share/zengsm/disable "${modem}"
+            qdbus ${ref} close
+            exit 0
+        ;;
+        "exit"|*)
+            exit 0
+        ;;
+    esac
+done

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ZenGSM
+GenericName=Gestore di modem e telefoni
+Comment=Interfaccia per ModemManager per fare operazioni elementari con telefoni e chiavette
+Exec=/usr/local/bin/zengsm
+Icon=phone
+Terminal=false
+Type=Application
+Categories=System;Settings;Network;Utility;
+NotShowIn=KDE;

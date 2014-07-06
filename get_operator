@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import shelve, sys, dbus
+
+MM_DBUS_SERVICE='org.freedesktop.ModemManager'
+MM_DBUS_INTERFACE_MODEM_GSM_NETWORK='org.freedesktop.ModemManager.Modem.Gsm.Network'
+
+bus = dbus.SystemBus()
+objpath = sys.argv[1]
+if objpath[:1] != '/':
+    objpath = "/org/freedesktop/ModemManager/Modems/%s" % str(objpath)
+proxy = bus.get_object(MM_DBUS_SERVICE, objpath)
+
+# Properties
+props = dbus.Interface(proxy, dbus_interface='org.freedesktop.DBus.Properties')
+net = dbus.Interface(proxy, dbus_interface=MM_DBUS_INTERFACE_MODEM_GSM_NETWORK)
+
+try:
+	reg = net.GetRegistrationInfo()
+	code = reg[1]
+	if code == "": raise SystemExit
+except dbus.exceptions.DBusException, SystemExit:
+	sys.exit(1)
+
+mcc = int(code[:3])
+mnc = int(code[3:])
+
+shelf = shelve.open("/usr/local/share/zengsm/operators", "r")
+operators = shelf["operators"]
+
+try:
+	for i in operators[mcc][mnc]:
+		print i
+except KeyError, IndexError:
+	sys.exit(1)

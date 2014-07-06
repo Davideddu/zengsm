@@ -1,0 +1,225 @@
+#!/bin/bash
+zenity="zenity --window-icon phone --title ZenGSM"
+
+while true; do
+    yes | $zenity --progress --no-cancel --pulsate --text "Ricerca dispositivi in corso..." &
+    pidd="$!"
+    modems=$(/usr/local/share/zengsm/list_modems)
+    kill $pidd
+    if [ "${modems}" == "" ]; then
+        $zenity --question --text "Non è stato trovato alcun dispositivo." --ok-label "Ricontrolla" --cancel-label "Esci"
+        if [ $? == 1 ]; then
+            exit 0
+        fi
+        continue
+    else    
+        modems="${modems}'ricontrolla' '' '' 'ricontrolla' '' 'Ripeti la ricerca dei dispositivi...'"
+        modem=$(echo "${modems}" | xargs $zenity --list --height 500 --width 450 --text "Scegli la chiavetta/telefono" --hide-column 1 --column "DBus path" --column "Marca" --column "Modello")
+        if [ "${modem}" == "" ]; then
+            exit 0
+        elif [ "${modem}" != "ricontrolla" ]; then
+            break
+        fi
+    fi
+done
+
+yes | $zenity --progress --no-cancel --pulsate --text "Attivazione della rete cellulare..." &
+pid0="$!"
+/usr/local/share/zengsm/enable "${modem}"
+kill $pid0
+
+while true; do
+    yes | $zenity --progress --no-cancel --pulsate --text "Lettura informazioni in corso..." &
+    pid="$!"
+    info=$(/usr/local/share/zengsm/get_info "${modem}")
+    kill $pid
+    action=$($zenity --list --text "Cosa vuoi fare?" --height 500 --width 450 --hide-column 1 --column "" --column "Azione" --hide-header --print-column 1 "stato" "${info}" "separator" "" "credito" "Controlla il credito residuo" "ricarica" "Effettua una ricarica" "sms" "Invia un SMS" "ussd" "Invia un codice di servizio" "disconnect" "Disconnetti da Internet" "scan" "Ricerca reti disponibili" "separator" "" "about" "Informazioni" "disable-exit" "Disattiva modem ed esci" "esci" "Esci")
+    case $action in
+        "credito")
+            yes | $zenity --progress --no-cancel --pulsate --text "Richiesta in corso..." &
+            pid1="$!"
+            credito=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+            exitcode="$?"
+            kill $pid1
+            if [ $exitcode == 1 ]; then
+                    $zenity --error --text "Non è stato possibile richiedere il credito.\nSe sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                    continue
+            fi
+            $zenity --info --text "${credito}"
+        ;;
+        "stato")
+             /usr/local/share/zengsm/detailed_info "${modem}" | $zenity --text-info --height 600 --width 600
+        ;;
+        "ricarica")
+            op=$(/usr/local/share/zengsm/get_operator "${modem}")
+            operator=()
+            while read -r line; do
+                operator+=("$line")
+            done <<< "${op}"
+            to_use_op="${operator[1]}"
+            status=$(/usr/local/share/zengsm/get_reg_status "${modem}")
+            echo "$status"
+            if [ "${status}" != "own_network" ]; then
+                to_use_op=""
+            fi
+            while true; do
+                case "${to_use_op}" in
+                    "Wind")
+                        taglio=$($zenity --list --text "Operatore rilevato: ${operator[1]}, ${operator[0]}\nSeleziona il taglio della ricarica WIND" --hide-column 2 --column "" --column "Taglio" --column "Taglio" --hide-header --height 250 --radiolist 0 "5" "5€" 0 "10" "10€" 0 "15" "15€" 0 "25" "25€" 0 "50" "50€")
+
+                        if [ "${taglio}" != "" ]; then
+                        codice=$($zenity --entry --text "Operatore rilevato: ${operator[1]}, ${operator[0]}\nInserisci il codice della ricarica WIND senza spazi")
+                        if [ "${codice}" != "" ]; then
+                        yes | $zenity --progress --no-cancel --pulsate --text "Richiesta in corso..." &
+                        pid2="$!"
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "4155" --modem "${modem}" "RICARICA ${taglio} ${codice}"
+                        exitcode="$?"
+                        kill "$pid2"
+                        if [ $exitcode == 2 ]; then
+                            $zenity --error --text "Non è stato possibile effettuare la ricarica.\nSe sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        yes | $zenity --progress --no-cancel --pulsate --text "Richiesta credito in corso..." &
+                        pid3="$!"
+                        credito=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        kill $pid3
+                        if [ $exitcode == 1 ]; then
+                            $zenity --error --text "Non è stato possibile richiedere il credito.\nSe sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        $zenity --info --text "${credito}"
+                        fi
+                        fi
+                        break
+                    ;;
+                    "TIM")
+                        codice=$($zenity --entry --text "Operatore rilevato: ${operator[1]}, ${operator[0]}\nInserisci il codice segreto della RICARICard TIM senza spazi")
+                        if [ "${codice}" != "" ]; then
+                        yes | $zenity --progress --no-cancel --pulsate --text "Richiesta in corso..." &
+                        pid2="$!"
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "40916" --modem "${modem}" "RIC ${codice}"
+                        exitcode="$?"
+                        kill "$pid2"
+                        if [ $exitcode == 2 ]; then
+                            $zenity --error --text "Non è stato possibile effettuare la ricarica.\nSe sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        yes | $zenity --progress --no-cancel --pulsate --text "Richiesta credito in corso..." &
+                        pid3="$!"
+                        credito=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        kill $pid3
+                        if [ $exitcode == 1 ]; then
+                            $zenity --error --text "Non è stato possibile richiedere il credito.\nSe sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        $zenity --info --text "${credito}"
+                        fi
+                        break
+                    ;;
+                    "Vodafone")
+                        codice=$($zenity --entry --text "Operatore rilevato: ${operator[1]}, ${operator[0]}\nInserisci il codice segreto della ricarica Vodafone senza spazi")
+                        if [ "${codice}" != "" ]; then
+                        yes | $zenity --progress --no-cancel --pulsate --text "Richiesta in corso..." &
+                        pid2="$!"
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "42010" --modem "${modem}" "${codice}"
+                        exitcode="$?"
+                        kill "$pid2"
+                        if [ $exitcode == 2 ]; then
+                            $zenity --error --text "Non è stato possibile effettuare la ricarica.\nSe sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        yes | $zenity --progress --no-cancel --pulsate --text "Richiesta credito in corso..." &
+                        pid3="$!"
+                        credito=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        kill $pid3
+                        if [ $exitcode == 1 ]; then
+                            $zenity --error --text "Non è stato possibile richiedere il credito.\nSe sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                            break
+                        fi
+                        $zenity --info --text "${credito}"
+                        fi
+                        break
+                    ;;
+                    *)
+                        to_use_op=$($zenity --list --text "Non è stato possibile riconoscere il proprio operatore.\nQuesto può essere dovuto al fatto che si è in roaming\nnella rete di un altro operatore.\nÈ possibile selezionare un operatore dalla lista in basso.\nNota che l'operatore di roaming potrebbe addebitare il\ncosto dell'SMS, che in Italia normalmente è gratuito.\n(Operatore rilevato: ${operator[1]}, ${operator[0]})" --column "Operatori disponibili" --height 500 --width 450 "Wind" "Vodafone" "TIM")
+                        if [ "${to_use_op}" == "" ]; then
+                            break
+                        fi
+                    ;;
+                esac
+            done
+        ;;
+        "sms")
+            numero=$($zenity --entry --text "Inserisci il numero di telefono del destinatario")
+            if [ "${numero}" != "" ]; then
+            testo=$($zenity --text-info --editable --ok-label "Invia" --cancel-label "Annulla")
+            if [ "${testo}" != "" ]; then
+            yes | $zenity --progress --pulsate --no-cancel --text "Invio in corso..." &
+            pid4="$!"
+            /usr/local/share/zengsm/sms_send --number "${numero}" --modem "${modem}" "${testo}"
+            kill "$pid4"
+            if [ "$?" == "0" ]; then
+                $zenity --info --text "Messaggio inviato" --title "ZenGSM"
+            else
+                $zenity --error --text "Messaggio non inviato.\nQuesto potrebbe essere dovuto al fatto che si è attualmente collegati a Internet con questo modem. Scollegati da Internet dal menu principale e riprova." --title "ZenGSM"
+            fi
+            fi
+            fi
+        ;;
+        "ussd")
+            text="Inserisci il codice di servizio"
+            while true
+            do
+                ussd=$($zenity --entry --text "${text}" --entry-text "*123#")
+                if [ "${ussd}" == "" ]; then
+                    break
+                fi
+                yes | $zenity --progress --no-cancel --pulsate --text "Richiesta in corso..." &
+                pid5="$!"
+                risposta=$(/usr/local/share/zengsm/ussd "${modem}" "${ussd}" 2>&1)
+                exitcode="$?"
+                kill $pid5
+                if [ $exitcode == 1 ]; then
+                    $zenity --error --text "Non è stato possibile effettuare l'operazione.\nSe sei collegato a Internet con questo modem, scollegati prima dal menu principale e prova di nuovo."
+                    break
+                fi
+                echo "${risposta}" | $zenity --text-info --ok-label "Rispondi" --cancel-label "Chiudi" --title "ZenGSM"
+                if [ $? == 1 ]; then
+                    break
+                fi
+                text="Inserisci la risposta"
+            done
+        ;;
+        "disconnect")
+            yes | $zenity --progress --no-cancel --pulsate --text "Disconnessione..." &
+            pid5="$!"
+            /usr/local/share/zengsm/disconnect "${modem}"
+            kill $pid5
+        ;;
+        "scan")
+            yes | $zenity --progress --no-cancel --pulsate --text "Ricerca in corso..." &
+            pid2="$!"
+            operators=$(/usr/local/share/zengsm/scan "${modem}")
+            kill "$pid2"
+            echo "${operators}" | $zenity --text-info --height 500 --width 450 --ok-label "Chiudi" --cancel-label "Chiudi"
+        ;;
+        "about")
+            $zenity --info --text="<big><big><big>ZenGSM</big></big></big>   v1.3\n<big>\nUn piccolo programma per gestire i modem GSM</big>\n\nScritto da Davide Depau <a href='mailto:david.dep.1996@gmail.com' title='Manda una email a Davide Depau'>&lt;david.dep.1996@gmail.com&gt;</a>"
+        ;;
+        "separator")
+        ;;
+        "disable-exit")
+            yes | $zenity --progress --no-cancel --pulsate --text "Disattivazione della rete cellulare..." &
+            pid0="$!"
+            /usr/local/share/zengsm/disable "${modem}"
+            kill $pid0
+            exit 0
+        ;;
+        "exit"|*)
+            exit 0
+        ;;
+    esac
+done

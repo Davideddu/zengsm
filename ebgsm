@@ -1,0 +1,221 @@
+#!/bin/bash
+zenity="zenity --window-icon phone --title ZenGSM"
+source easybashgui
+
+while true; do
+    wait_for "Searching devices..."
+    modems=$(/usr/local/share/zengsm/list_modems)
+    terminate_wait_for
+    if [ "${modems}" == "" ]; then
+        $zenity --question --text "No device found." --ok-label "Check again" --cancel-label "Exit"
+        if [ $? == 1 ]; then
+            exit 0
+        fi
+        continue
+    else    
+        modems="${modems}'recheck' '' '' 'recheck' '' 'Look again for devices...'"
+        modem=$(echo "${modems}" | xargs $zenity --list --height 500 --width 450 --text "Choose a modem" --hide-column 1 --column "DBus path" --column "Brand" --column "Model")
+        if [ "${modem}" == "" ]; then
+            exit 0
+        elif [ "${modem}" != "recheck" ]; then
+            break
+        fi
+    fi
+done
+
+wait_for "Enabling cellular network..."
+/usr/local/share/zengsm/enable "${modem}"
+terminate_wait_for
+
+while true; do
+    wait_for "Reading information..."
+    info=$(/usr/local/share/zengsm/get_info "${modem}")
+    terminate_wait_for
+    action=$($zenity --list --text "What do you want to do?" --height 500 --width 450 --hide-column 1 --column "" --column "Action" --hide-header --print-column 1 "status" "${info}" "separator" "" "credit" "Check your credit" "top_up" "Top up your credit" "sms" "Send an SMS" "ussd" "Send a service code" "disconnect" "Disconnect from Internet" "scan" "Search available operators" "separator" "" "about" "About EBGSM" "disable-exit" "Disable modem and exit" "exit" "Exit")
+    case $action in
+        "credit")
+            wait_for "Requesting..."
+            credit=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+            exitcode="$?"
+            terminate_wait_for
+            if [ $exitcode == 1 ]; then
+                    alert_message "Unable to request the credit.\nIf you are connected to Internet, please disconnect from the main menu and try again."
+                    continue
+            fi
+            message "${credit}"
+        ;;
+        "status")
+             /usr/local/share/zengsm/detailed_info "${modem}" | text > /dev/null
+        ;;
+        "top_up")
+            op=$(/usr/local/share/zengsm/get_operator "${modem}")
+            operator=()
+            while read -r line; do
+                operator+=("$line")
+            done <<< "${op}"
+            to_use_op="${operator[1]}"
+            status=$(/usr/local/share/zengsm/get_reg_status "${modem}")
+            echo "$status"
+            if [ "${status}" != "own_network" ]; then
+                to_use_op=""
+            fi
+            while true; do
+                case "${to_use_op}" in
+                    "Wind")
+                        price=$($zenity --list --text "Detected operator: ${operator[1]}, ${operator[0]}\nSelect the price of your WIND recharge voucher" --hide-column 2 --column "" --column "Price" --column "Price" --hide-header --height 250 --radiolist 0 "5" "5€" 0 "10" "10€" 0 "15" "15€" 0 "25" "25€" 0 "50" "50€")
+
+                        if [ "${price}" != "" ]; then
+                        input "Code of the recharge voucher with no spaces"
+                        code="${dir_tmp}/${file_tmp}"
+                        if [ "${code}" != "" ]; then
+                        wait_for "Requesting..."
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "4155" --modem "${modem}" "RICARICA ${price} ${code}"
+                        exitcode="$?"
+                        terminate_wait_for
+                        if [ $exitcode == 2 ]; then
+                            alert_message "Unable to send your top up request.\nIf you are connected to Internet, please disconnect from the main menu and try again."
+                            break
+                        fi
+                        wait_for "Requesting credit..."
+                        credit=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        terminate_wait_for
+                        if [ $exitcode == 1 ]; then
+                            alert_message "Unable to send your top up request.\nIf you are connected to Internet, please disconnect from the main menu and try again."
+                            break
+                        fi
+                        message "${credit}"
+                        fi
+                        fi
+                        break
+                    ;;
+                    "TIM")
+                        code=$($zenity --entry --text "Detected operator: ${operator[1]}, ${operator[0]}\nType the code of your TIM recharge voucher")
+                        if [ "${code}" != "" ]; then
+                        wait_for "Requesting..."
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "40916" --modem "${modem}" "RIC ${code}"
+                        exitcode="$?"
+                        terminate_wait_for
+                        if [ $exitcode == 2 ]; then
+                            alert_message "Unable to send your top up request.\nIf you are connected to Internet, please disconnect from the main menu and try again."
+                            break
+                        fi
+                        wait_for "Requesting credit..."
+                        credit=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        terminate_wait_for
+                        if [ $exitcode == 1 ]; then
+                            alert_message "Unable to request credit.\nIf you are connected to Internet, please disconnect from the main menu and try again."
+                            break
+                        fi
+                        message "${credit}"
+                        fi
+                        break
+                    ;;
+                    "Vodafone")
+                        code=$($zenity --entry --text "Detected operator: ${operator[1]}, ${operator[0]}\nType the code of your Vodafone recharge voucher")
+                        if [ "${code}" != "" ]; then
+                        wait_for "Requesting..."
+                        /usr/local/share/zengsm/sms_send "${modem}" --number "42010" --modem "${modem}" "${code}"
+                        exitcode="$?"
+                        terminate_wait_for
+                        if [ $exitcode == 2 ]; then
+                            alert_message "Unable to send your top up request.\nIf you are connected to Internet, please disconnect from the main menu and try again."
+                            break
+                        fi
+                        wait_for "Requesting credit"
+                        credit=$(/usr/local/share/zengsm/ussd "${modem}" "*123#")
+                        exitcode="$?"
+                        terminate_wait_for
+                        if [ $exitcode == 1 ]; then
+                            alert_message "Unable to request your credit.\nIf you are connected to Internet, please disconnect from the main menu and try again."
+                            break
+                        fi
+                        message "${credit}"
+                        fi
+                        break
+                    ;;
+                    *)
+                        to_use_op=$($zenity --list --text "Unable to detect your operator.\n\nYou can select an operator in the list below.\nNote that if you are roaming on another operator network\n, it may charge the cost of the SMS.\n(Detected operator: ${operator[1]}, ${operator[0]})" --column "Available operators" --height 500 --width 450 "Wind" "Vodafone" "TIM")
+                        if [ "${to_use_op}" == "" ]; then
+                            break
+                        fi
+                    ;;
+                esac
+            done
+        ;;
+        "sms")
+            input 1 "Telephone number"
+            number="${dir_tmp}/${file_tmp}"
+            if [ "${number}" != "" ]; then
+            echo "Type here the text of the SMS" | text
+            smstext="${dir_tmp}/${file_tmp}"
+            if [ "${smstext}" != "" ]; then
+            wait_for "Sending..."
+            /usr/local/share/zengsm/sms_send --number "${number}" --modem "${modem}" "${smstext}"
+            exitcode="$?"
+            terminate_wait_for
+            if [ "$exitcode" == "0" ]; then
+                message "Message sent"
+            else
+                alert_message "Unable to send message.\nQuesto potrebbe essere dovuto al fatto che si è attualmente collegati a Internet con questo modem. Scollegati da Internet dal menu principale e riprova." --title "ZenGSM"
+            fi
+            fi
+            fi
+        ;;
+        "ussd")
+            mytext="Type here the service code"
+            while true
+            do
+                input 1 "$mytext"
+                ussd=
+                if [ "${ussd}" == "" ]; then
+                    break
+                fi
+                wait_for "Requesting..."
+                risposta=$(/usr/local/share/zengsm/ussd "${modem}" "${ussd}" 2>&1)
+                exitcode="$?"
+                terminate_wait_for
+                if [ $exitcode == 1 ]; then
+                    alert_message "Unable to make your request.\nIf you are connected to Internet, please disconnect from the main menu and try again."
+                    break
+                fi
+                echo "${risposta}" | text
+                if [ $? == 1 ]; then
+                    break
+                fi
+                question "Do you want to answer?"
+                if [ "$?" != "0" ]; then
+                    break
+                fi
+                mytext="Inserisci la risposta"
+            done
+        ;;
+        "disconnect")
+            wait_for "Disconnecting..."
+            /usr/local/share/zengsm/disconnect "${modem}"
+            terminate_wait_for
+        ;;
+        "scan")
+            wait_for "Searching..."
+            operators=$(/usr/local/share/zengsm/scan "${modem}")
+            terminate_wait_for
+            echo "${operators}" | text
+        ;;
+        "about")
+            message "<big><big><big>ZenGSM</big></big></big>   v1.3\n<big>\nUn piccolo programma per gestire i modem GSM</big>\n\nScritto da Davide Depau <a href='mailto:david.dep.1996@gmail.com' title='Manda una email a Davide Depau'>&lt;david.dep.1996@gmail.com&gt;</a>"
+        ;;
+        "separator")
+            # Do nothing
+        ;;
+        "disable-exit")
+            wait_for "Disabling cellular network..."
+            /usr/local/share/zengsm/disable "${modem}"
+            terminate_wait_for
+            exit 0
+        ;;
+        "exit"|*)
+            exit 0
+        ;;
+    esac
+done
